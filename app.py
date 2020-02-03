@@ -28,13 +28,13 @@ Station = Base.classes.station
 # take start and end dates and return min, avg and max temperature
 #################################################
 def temp_stats(session, start_date, end_date):
-    """TMIN, TAVG, and TMAX for a list of dates.
+    """TMIN, TAVG, and TMAX between start and end dates.
     Args:
         session: sqlalchemy Session
         start_date (string): A date string in the format %Y-%m-%d
         end_date (string): A date string in the format %Y-%m-%d
     Returns:
-        TMIN, TAVE, and TMAX
+        TMIN, TAVG, and TMAX
     """
     
     return session.query(
@@ -85,7 +85,7 @@ def home():
                 <tbody>
                     <tr>
                         <td><a href="/api/v1.0/precipitation">/api/v1.0/precipitation</a></td>
-                        <td>return precipitation data for last year</td>
+                        <td>return precipitation data for the last year in dataset</td>
                     </tr>
                     <tr>
                         <td><a href="/api/v1.0/stations">/api/v1.0/stations</a></td>
@@ -93,15 +93,15 @@ def home():
                     </tr>
                     <tr>
                         <td><a href="/api/v1.0/tobs">/api/v1.0/tobs</a></td>
-                        <td>return temperature data a year from the last data point</td>
+                        <td>return temperature data for the most active station (USC005519281) for the last year in dataset</td>
                     </tr>
                     <tr>
                         <td>/api/v1.0/&ltstart&gt</td>
-                        <td>return min, average and max temperature from given start date "YYYY-mm-dd" to latest</td>
+                        <td>return min, average and max temperature from given start date "YYYY-mm-dd" to end of dataset</td>
                     </tr>
                     <tr>
                         <td>/api/v1.0/&ltstart&gt/&ltend&gt</td>
-                        <td>return min, average and max temperature for given start-end date range</td>
+                        <td>return min, average and max temperature for given start date to end date</td>
                     </tr>
                 </tbody>
                 <tfoot>
@@ -260,9 +260,11 @@ def tobs_start_end(start, end):
     # Create our session (link) from Python to the DB
     session = Session(engine)
 
-    # find latest date of data
-    d_latest = session.query(func.max(Measurement.date))\
-        .scalar()
+    # find range of date in data
+    [(d_earliest, d_latest)] = session.query(
+        func.min(Measurement.date),
+        func.max(Measurement.date)
+        ).all()
 
     try:
         # Switch start and end date if start date is later
@@ -270,12 +272,20 @@ def tobs_start_end(start, end):
             dt.datetime.strptime(end, "%Y-%m-%d")):
             start, end = end, start
 
-        # Check start/end dates are earlier than available data date
+        # Check if start/end dates are within available data date
         if (dt.datetime.strptime(start, "%Y-%m-%d") > \
             dt.datetime.strptime(d_latest, "%Y-%m-%d") \
-            and dt.datetime.strptime(end, "%Y-%m-%d") > \
-            dt.datetime.strptime(d_latest, "%Y-%m-%d")):
+            and dt.datetime.strptime(end, "%Y-%m-%d") < \
+            dt.datetime.strptime(d_earliest, "%Y-%m-%d")):
             raise DataDateError
+
+        if (dt.datetime.strptime(start, "%Y-%m-%d") < \
+            dt.datetime.strptime(d_earliest, "%Y-%m-%d")):
+            start = d_earliest
+        
+        if (dt.datetime.strptime(end, "%Y-%m-%d") > \
+            dt.datetime.strptime(d_latest, "%Y-%m-%d")):
+            end = d_latest
 
         # Create our session (link) from Python to the DB
         session = Session(engine)
@@ -301,8 +311,8 @@ def tobs_start_end(start, end):
     except DataDateError:
         session.close()
         return(
-            f"Start and end dates are later than data available<br>"
-            f"Please enter a date earlier than {d_latest}"
+            f"Start and end dates are outside available date range<br>"
+            f"Please enter a period between {d_earliest} and {d_latest}"
         )
 
 if __name__ == "__main__":
